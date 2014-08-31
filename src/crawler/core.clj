@@ -1,17 +1,17 @@
 (ns crawler.core
-  (:require [clj-http.client :as http]
+  (:require [org.httpkit.client :as http]
             [clojure.xml :as xml]
             [clojure.string :as s]
             [clojure.data.json :as json]
-            [clojure.core.async :refer [chan <! <!! >! >!! go go-loop alts! timeout buffer]])
+            [clojure.core.async :refer [chan <! <!! >! >!! put! go go-loop alts! timeout dropping-buffer]])
   (:import [org.jsoup Jsoup]
            [java.net URL])
   (:gen-class))
 
 (def visited-urls (atom #{}))
 (def site-map (atom {}))
-(def urls-chan (chan 102400))
-(def log-chan (chan))
+(def urls-chan (chan (dropping-buffer 102400)))
+(def log-chan (chan (dropping-buffer 102400)))
 (def exit-chan (chan 1))
 (def concurrency 1000)
 
@@ -34,23 +34,32 @@
       nil)))
 
 (defn base-url [url-str]
-  (let [url (URL. url-str)]
-    (str (.getProtocol url) "://" (.getHost url))))
-
-;; Fetching/parsing pages
-(defn get-doc [url]
   (try
-    (let [{:keys [body trace-redirects]} (http/get url)]
-      (Jsoup/parse body (base-url (last trace-redirects))))
+    (let [url (URL. url-str)]
+      (str (.getProtocol url) "://" (.getHost url)))
     (catch Exception e
-      (log "Exception fetching" url)
+      (log "error parsing url" url-str)
       nil)))
 
+;; Fetching/parsing pages
+(defn async-get [url]
+  (let [c (chan)]
+    (http/get url #(put! c %))
+    c))
+
+(defn get-doc [url]
+  (go (let [{:keys [error body opts headers]} (<! (async-get url))
+            content-type (:content-type headers)]
+        (if (or error (not (.startsWith content-type "text/html")))
+          (do (log "error fetching" url)
+              false)
+          (Jsoup/parse body (base-url (:url opts)))))))
+
 (defn get-assets [doc]
-  (->> (.select doc "script, link, img, a")
+  (->> (.select doc "script, link, img")
        (mapcat #(conj [] (.attr % "abs:href") (.attr % "abs:src")))
        (filter string?)
-       (filter #(or (.endsWith % ".css") (.endsWith % ".js")))))
+       (remove empty?)))
 
 (defn get-links [doc crawling-url]
   (->> (.select doc "a")
@@ -62,20 +71,17 @@
        (filter #(#{"http" "https"} (.getProtocol %)))
        (map #(s/replace % #"\#.*" ""))))
 
-(defn process-page [url]
-  (when-not (@visited-urls url)
-    (swap! visited-urls conj url)
-    (log "crawling" url)
-    (when-let [doc (get-doc url)]
-      (swap! site-map assoc url (get-assets doc))
-      (doseq [url (get-links doc url)]
-        (go (>! urls-chan url))))))
-
 ;; Main event loop
 (defn start-consumers []
   (dotimes [_ concurrency]
     (go-loop [url (<! urls-chan)]
-             (process-page url)
+             (when-not (@visited-urls url)
+               (log "crawling" url)
+               (swap! visited-urls conj url)
+               (when-let [doc (<! (get-doc url))]
+                 (swap! site-map assoc url (get-assets doc))
+                 (doseq [url (get-links doc url)]
+                   (go (>! urls-chan url)))))
              (let [[value channel] (alts! [urls-chan (timeout 5000)])]
                (if (= channel urls-chan)
                  (recur value)
