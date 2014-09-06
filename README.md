@@ -1,36 +1,7 @@
 # crawler
 
-FIXME: description
-
-## Installation
-
-Download from http://example.com/FIXME.
+A web crawler used to produce a sitemap containing a list of crawled urls as well as a list of assets each page refers to.
 
 ## Usage
-
-FIXME: explanation
-
-    $ java -jar crawler-0.1.0-standalone.jar [args]
-
-## Options
-
-FIXME: listing of options this app accepts.
-
-## Examples
-
-...
-
-### Bugs
-
-...
-
-### Any Other Sections
-### That You Think
-### Might be Useful
-
-## License
-
-Copyright © 2014 FIXME
-
-Distributed under the Eclipse Public License either version 1.0 or (at
-your option) any later version.
+    $ lein uberjar
+    $ java -jar crawler-0.1.0-standalone.jar [domain]

@@ -10,10 +10,16 @@
 
 (def visited-urls (atom #{}))
 (def site-map (atom {}))
-(def urls-chan (chan (dropping-buffer 102400)))
-(def log-chan (chan (dropping-buffer 102400)))
+
+;; I've given massive buffers my two channels here because I don't want to drop
+;; values. I'm not quite sure why they need to be so big, but anything smaller gives me:
+;; Exception in thread "async-dispatch-1626" java.lang.AssertionError:
+;;   Assert failed: No more than 1024 pending puts are allowed on a single channel. Consider using a windowed buffer.
+;;   (< (.size puts) impl/MAX-QUEUE-SIZE)
+(def urls-chan (chan 102400))
+(def log-chan (chan 102400))
+
 (def exit-chan (chan 1))
-(def concurrency 1000)
 
 ;; Logging
 (defn log [& msgs]
@@ -41,13 +47,18 @@
       (log "error parsing url" url-str)
       nil)))
 
+(defn remove-url-fragment [url]
+  (s/replace url #"\#.*" ""))
+
 ;; Fetching/parsing pages
 (defn async-get [url]
-  (let [c (chan)]
+  (let [c (chan 1)]
     (http/get url #(put! c %))
     c))
 
-(defn get-doc [url]
+(defn get-doc
+  "Fetches a parsed html page from the given url and places onto a channel"
+  [url]
   (go (let [{:keys [error body opts headers]} (<! (async-get url))
             content-type (:content-type headers)]
         (if (or error (not (.startsWith content-type "text/html")))
@@ -55,40 +66,49 @@
               false)
           (Jsoup/parse body (base-url (:url opts)))))))
 
-(defn get-assets [doc]
+(defn get-assets
+  "Returns assets referenced from the given html document"
+  [doc]
   (->> (.select doc "script, link, img")
-       (mapcat #(conj [] (.attr % "abs:href") (.attr % "abs:src")))
+       (mapcat (juxt #(.attr % "abs:href") #(.attr % "abs:src")))
        (filter string?)
        (remove empty?)))
 
-(defn get-links [doc crawling-url]
+(defn get-links
+  "Given a html document, returns all urls (limited to <domain>) linked to"
+  [doc domain]
   (->> (.select doc "a")
        (map #(.attr % "abs:href"))
        (remove empty?)
        (map string->url)
        (remove nil?)
-       (filter #(.endsWith (.getHost %) (.getHost (URL. crawling-url))))
+       (filter #(.endsWith (.getHost %) (.getHost (URL. domain))))
        (filter #(#{"http" "https"} (.getProtocol %)))
-       (map #(s/replace % #"\#.*" ""))))
+       (map remove-url-fragment)))
 
 ;; Main event loop
-(defn start-consumers []
-  (dotimes [_ concurrency]
+(defn start-consumers
+  "Spins up n go blocks to take a url from urls-chan, store its assets and then
+  puts its links onto urls-chan, repeating until there are no more urls to take"
+  [n domain]
+  (dotimes [_ n]
     (go-loop [url (<! urls-chan)]
              (when-not (@visited-urls url)
                (log "crawling" url)
                (swap! visited-urls conj url)
                (when-let [doc (<! (get-doc url))]
                  (swap! site-map assoc url (get-assets doc))
-                 (doseq [url (get-links doc url)]
+                 (doseq [url (get-links doc domain)]
                    (go (>! urls-chan url)))))
-             (let [[value channel] (alts! [urls-chan (timeout 5000)])]
+             ;; Take the next url off the q, if 3 secs go by assume no more are coming
+             (let [[value channel] (alts! [urls-chan (timeout 3000)])]
                (if (= channel urls-chan)
                  (recur value)
                  (>! exit-chan true))))))
 
 (defn seconds-since [start-time]
-  (double (/ (- (System/currentTimeMillis) start-time) 1000)))
+  (double (/ (- (System/currentTimeMillis) start-time)
+             1000)))
 
 (defn -main
   "Crawls [domain] for links to assets"
@@ -96,9 +116,9 @@
   (let [start-time (System/currentTimeMillis)]
     (start-logger)
     (log "Begining crawl of" domain)
-    (start-consumers)
+    (start-consumers 40 domain)
+    ;; Kick off with the first url
     (>!! urls-chan domain)
     (<!! exit-chan)
     (println (json/write-str @site-map))
-    (<!! (log "Completed after" (seconds-since start-time) "seconds"))
-    (System/exit 0)))
+    (<!! (log "Completed after" (seconds-since start-time) "seconds"))))
