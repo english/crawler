@@ -3,7 +3,7 @@
             [clojure.xml :as xml]
             [clojure.string :as s]
             [clojure.data.json :as json]
-            [clojure.core.async :refer [chan <! <!! >! >!! put! go go-loop alts! timeout dropping-buffer]])
+            [clojure.core.async :refer [mult tap chan <! <!! >! >!! put! go go-loop alts! timeout dropping-buffer]])
   (:import [org.jsoup Jsoup]
            [java.net URL])
   (:gen-class))
@@ -17,13 +17,17 @@
 ;;   Assert failed: No more than 1024 pending puts are allowed on a single channel. Consider using a windowed buffer.
 ;;   (< (.size puts) impl/MAX-QUEUE-SIZE)
 (def urls-chan (chan 102400))
+
+(def log-chan-to-mult (chan 102400))
+(def log-mult (mult log-chan-to-mult))
 (def log-chan (chan 102400))
+(tap log-mult log-chan)
 
 (def exit-chan (chan 1))
 
 ;; Logging
 (defn log [& msgs]
-  (go (>! log-chan (s/join " " msgs))))
+  (go (>! log-chan-to-mult (s/join " " msgs))))
 
 (defn start-logger []
   (go (while true
@@ -110,15 +114,19 @@
   (double (/ (- (System/currentTimeMillis) start-time)
              1000)))
 
+(defn run [domain]
+  (start-logger)
+  (start-consumers 40 domain)
+  (log "Begining crawl of" domain)
+  ;; Kick off with the first url
+  (>!! urls-chan domain)
+  (<!! exit-chan)
+  (log "Done crawling"))
+
 (defn -main
   "Crawls [domain] for links to assets"
   [domain]
   (let [start-time (System/currentTimeMillis)]
-    (start-logger)
-    (log "Begining crawl of" domain)
-    (start-consumers 40 domain)
-    ;; Kick off with the first url
-    (>!! urls-chan domain)
-    (<!! exit-chan)
+    (run domain)
     (println (json/write-str @site-map))
     (<!! (log "Completed after" (seconds-since start-time) "seconds"))))
