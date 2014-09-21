@@ -3,7 +3,7 @@
             [clojure.xml :as xml]
             [clojure.string :as s]
             [clojure.data.json :as json]
-            [clojure.core.async :refer [mult tap chan <! <!! >! >!! put! go go-loop alts! timeout dropping-buffer]])
+            [clojure.core.async :refer [mult tap chan <! <!! >! >!! put! go go-loop alts! timeout dropping-buffer close! onto-chan]])
   (:import [org.jsoup Jsoup]
            [java.net URL])
   (:gen-class))
@@ -16,14 +16,12 @@
 ;; Exception in thread "async-dispatch-1626" java.lang.AssertionError:
 ;;   Assert failed: No more than 1024 pending puts are allowed on a single channel. Consider using a windowed buffer.
 ;;   (< (.size puts) impl/MAX-QUEUE-SIZE)
-(def urls-chan (chan 102400))
+; (def urls-chan (chan 102400))
 
 (def log-chan-to-mult (chan 102400))
 (def log-mult (mult log-chan-to-mult))
 (def log-chan (chan 102400))
 (tap log-mult log-chan)
-
-(def exit-chan (chan 1))
 
 ;; Logging
 (defn log [& msgs]
@@ -94,34 +92,36 @@
 (defn start-consumers
   "Spins up n go blocks to take a url from urls-chan, store its assets and then
   puts its links onto urls-chan, repeating until there are no more urls to take"
-  [n domain]
-  (dotimes [_ n]
-    (go-loop [url (<! urls-chan)]
-             (when-not (@visited-urls url)
-               (log "crawling" url)
-               (swap! visited-urls conj url)
-               (when-let [doc (<! (get-doc url))]
-                 (swap! site-map assoc url (get-assets doc))
-                 (doseq [url (get-links doc domain)]
-                   (go (>! urls-chan url)))))
-             ;; Take the next url off the q, if 3 secs go by assume no more are coming
-             (let [[value channel] (alts! [urls-chan (timeout 3000)])]
-               (if (= channel urls-chan)
-                 (recur value)
-                 (>! exit-chan true))))))
+  [n domain urls-chan]
+  (let [exit-chan (chan 1)]
+    (dotimes [_ n]
+      (go-loop []
+        (let [[url channel] (alts! [urls-chan (timeout 3000)])]
+          (if (not= channel urls-chan)
+            (>! exit-chan true)
+            (when-not (nil? url)
+              (when-not (@visited-urls url)
+                (log "crawling" url)
+                (swap! visited-urls conj url)
+                (when-let [doc (<! (get-doc url))]
+                  (swap! site-map assoc url (get-assets doc))
+                  (onto-chan urls-chan (get-links doc domain) false)))
+              (recur))))))
+    exit-chan))
 
 (defn seconds-since [start-time]
   (double (/ (- (System/currentTimeMillis) start-time)
              1000)))
 
 (defn run [domain]
-  (start-logger)
-  (start-consumers 40 domain)
-  (log "Begining crawl of" domain)
-  ;; Kick off with the first url
-  (>!! urls-chan domain)
-  (<!! exit-chan)
-  (log "Done crawling"))
+  (let [urls-chan (chan 102400)]
+    (start-logger)
+    (let [workers-done-chan (start-consumers 40 domain urls-chan)]
+      (log "Begining crawl of" domain)
+      ;; Kick off with the first url
+      (>!! urls-chan domain)
+      (<!! workers-done-chan)
+      (log "Done crawling"))))
 
 (defn -main
   "Crawls [domain] for links to assets"
