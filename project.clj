@@ -12,6 +12,7 @@
                  [compojure "1.1.8"]
                  [ring "1.3.1"]
                  [ring/ring-devel "1.1.8"]
+                 [org.clojure/tools.logging "0.3.1"]
                  [enlive "1.1.5"]]
   :dev-dependencies [[javax.servlet/servlet-api "2.5"]]
   :source-paths ["src" "src-cljs"]

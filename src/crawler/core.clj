@@ -2,43 +2,26 @@
   (:require [org.httpkit.client :as http]
             [clojure.xml :as xml]
             [clojure.string :as s]
+            [clojure.tools.logging :as log :refer [info error]]
             [clojure.data.json :as json]
-            [clojure.core.async :refer [mult tap chan <! <!! >! >!! put! go go-loop alts! timeout dropping-buffer close! onto-chan]])
+            [clojure.core.async :refer [mult tap chan <! <!! >! >!! put! go go-loop alts! timeout dropping-buffer buffer close! onto-chan]])
   (:import [org.jsoup Jsoup]
            [java.net URL])
   (:gen-class))
-
-(def visited-urls (atom #{}))
-(def site-map (atom {}))
 
 ;; I've given massive buffers my two channels here because I don't want to drop
 ;; values. I'm not quite sure why they need to be so big, but anything smaller gives me:
 ;; Exception in thread "async-dispatch-1626" java.lang.AssertionError:
 ;;   Assert failed: No more than 1024 pending puts are allowed on a single channel. Consider using a windowed buffer.
 ;;   (< (.size puts) impl/MAX-QUEUE-SIZE)
-; (def urls-chan (chan 102400))
-
-(def log-chan-to-mult (chan 102400))
-(def log-mult (mult log-chan-to-mult))
-(def log-chan (chan 102400))
-(tap log-mult log-chan)
-
-;; Logging
-(defn log [& msgs]
-  (go (>! log-chan-to-mult (s/join " " msgs))))
-
-(defn start-logger []
-  (go (while true
-        (let [msg (<! log-chan)]
-          (binding [*out* *err*]
-            (println msg))))))
+;; (def urls-chan (chan 102400))
 
 ;; URL helpers
 (defn string->url [url]
   (try
     (URL. url)
     (catch java.net.MalformedURLException e
-      (log "Couldn't parse url:" url)
+      (error "Couldn't parse url:" url)
       nil)))
 
 (defn base-url [url-str]
@@ -46,7 +29,7 @@
     (let [url (URL. url-str)]
       (str (.getProtocol url) "://" (.getHost url)))
     (catch Exception e
-      (log "error parsing url" url-str)
+      (error "error parsing url" url-str e)
       nil)))
 
 (defn remove-url-fragment [url]
@@ -64,7 +47,7 @@
   (go (let [{:keys [error body opts headers]} (<! (async-get url))
             content-type (:content-type headers)]
         (if (or error (not (.startsWith content-type "text/html")))
-          (do (log "error fetching" url)
+          (do (log/error "error fetching" url)
               false)
           (Jsoup/parse body (base-url (:url opts)))))))
 
@@ -81,9 +64,9 @@
   [doc domain]
   (->> (.select doc "a")
        (map #(.attr % "abs:href"))
-       (remove empty?)
+       #_(remove empty?)
        (map string->url)
-       (remove nil?)
+       #_(remove nil?)
        (filter #(.endsWith (.getHost %) (.getHost (URL. domain))))
        (filter #(#{"http" "https"} (.getProtocol %)))
        (map remove-url-fragment)))
@@ -92,7 +75,7 @@
 (defn start-consumers
   "Spins up n go blocks to take a url from urls-chan, store its assets and then
   puts its links onto urls-chan, repeating until there are no more urls to take"
-  [n domain urls-chan]
+  [n domain urls-chan visited-urls sitemap]
   (let [exit-chan (chan 1)]
     (dotimes [_ n]
       (go-loop []
@@ -101,10 +84,10 @@
             (>! exit-chan true)
             (when-not (nil? url)
               (when-not (@visited-urls url)
-                (log "crawling" url)
+                (info "crawling" url)
                 (swap! visited-urls conj url)
                 (when-let [doc (<! (get-doc url))]
-                  (swap! site-map assoc url (get-assets doc))
+                  (swap! sitemap assoc url (get-assets doc))
                   (onto-chan urls-chan (get-links doc domain) false)))
               (recur))))))
     exit-chan))
@@ -114,19 +97,20 @@
              1000)))
 
 (defn run [domain]
-  (let [urls-chan (chan 102400)]
-    (start-logger)
-    (let [workers-done-chan (start-consumers 40 domain urls-chan)]
-      (log "Begining crawl of" domain)
+  (let [urls-chan (chan 102400)
+        visited-urls (atom #{})
+        sitemap (atom {})]
+    (let [workers-done-chan (start-consumers 40 domain urls-chan visited-urls sitemap)]
+      (info "Begining crawl of" domain)
       ;; Kick off with the first url
       (>!! urls-chan domain)
       (<!! workers-done-chan)
-      (log "Done crawling"))))
+      (info "Done crawling")
+      @sitemap)))
 
 (defn -main
   "Crawls [domain] for links to assets"
   [domain]
   (let [start-time (System/currentTimeMillis)]
-    (run domain)
-    (println (json/write-str @site-map))
-    (<!! (log "Completed after" (seconds-since start-time) "seconds"))))
+    (println (json/write-str (run domain)))
+    (info "Completed after" (seconds-since start-time) "seconds")))

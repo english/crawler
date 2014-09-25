@@ -16,23 +16,30 @@
         path   "/trigger"
         method "post"
         body   (str "domain=" domain)]
+    (dom/append (by-id :content) (create-dom :ul {:id "url-list"}))
     (doto (XhrIo.)
       (events/listen EventType.SUCCESS dom/log-obj)
       (.send path method body))))
 
-(defn render []
+(defn initial-render []
   (doto (by-id :content)
     (gdom/removeChildren)
     (dom/append (create-dom :input {:type "text" :id "domain"}))
     (dom/append (create-dom :button {:onclick crawl-handler} "Crawl"))))
 
+(defn handle-message [packet]
+  (let [ul (by-id :url-list)
+        message (.-message packet)]
+    (dom/log message)
+    (dom/append ul (create-dom :li nil message))))
+
 (defn ^:export init []
   (doto (WebSocket.)
-    (events/listen WebSocket.EventType.MESSAGE #(dom/log (.-message %)))
+    (events/listen WebSocket.EventType.MESSAGE handle-message)
     (events/listen WebSocket.EventType.OPENED  #(dom/log "websocket opened"))
     (events/listen WebSocket.EventType.CLOSED  #(dom/log "websocket closed"))
     (events/listen WebSocket.EventType.ERROR   (fn [e]
                                                  (dom/log "websocket error")
                                                  (dom/log-obj e)))
     (.open "ws://localhost:3000/ws"))
-  (render))
+  (initial-render))
