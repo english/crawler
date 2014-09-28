@@ -19,12 +19,12 @@
                            :headers {:content-type "text/html"}} options))
                  c)))
 
-(deftest test-get-doc
+(deftest test-get-page
   (testing "happy path"
     (let [html "<html><body><a href=\"/page\">Link to page</a></body></html>"]
       (with-redefs [crawler.core/async-get (mock-async-get html)]
         (is (= "http://example.com/page"
-               (-> (get-doc "http://example.com")
+               (-> (get-page "http://example.com")
                    (async/<!!)
                    (.select "a")
                    (first)
@@ -33,32 +33,32 @@
   (testing "with an error response"
     (with-redefs [crawler.core/async-get (mock-async-get "" {:error true})]
       (is (= false
-             (async/<!! (get-doc "http://example.com"))))))
+             (async/<!! (get-page "http://example.com"))))))
 
   (testing "when responding with non-html"
     (with-redefs [crawler.core/async-get
                   (mock-async-get "" {:headers {:content-type "application/json"}})]
       (is (= false
-             (async/<!! (get-doc "http://example.com")))))))
+             (async/<!! (get-page "http://example.com")))))))
 
 (deftest test-get-assets
   (testing "images"
     (let [html "<html><body><img src=\"/image.png\" /></body></html>"
-          doc (Jsoup/parse html "http://example.com")]
+          page (Jsoup/parse html "http://example.com")]
       (is (= '("http://example.com/image.png")
-             (get-assets doc)))))
+             (get-assets page)))))
 
   (testing "scripts"
     (let [html "<html><body><script src=\"/script.js\"></script></body></html>"
-          doc (Jsoup/parse html "http://example.com")]
+          page (Jsoup/parse html "http://example.com")]
       (is (= '("http://example.com/script.js")
-             (get-assets doc)))))
+             (get-assets page)))))
 
   (testing "css"
     (let [html "<html><link rel=\"stylesheet\" href=\"style.css\" /></html>"
-          doc (Jsoup/parse html "http://example.com")]
+          page (Jsoup/parse html "http://example.com")]
       (is (= '("http://example.com/style.css")
-             (get-assets doc))))))
+             (get-assets page))))))
 
 (deftest test-get-links
   (testing "simple"
@@ -71,6 +71,6 @@
   (testing "it works"
     (let [html "<html><script src=\"script.js\"></script><body><a href=\"/page\">a link</a></body></html>"]
       (with-redefs [crawler.core/async-get (mock-async-get html)]
-        (is (= (run "http://example.com")
+        (is (= (run "http://example.com" (async/chan))
                {"http://example.com/page" '("http://example.com/script.js"),
                 "http://example.com"      '("http://example.com/script.js")}))))))

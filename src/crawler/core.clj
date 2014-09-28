@@ -9,13 +9,6 @@
            [java.net URL])
   (:gen-class))
 
-;; I've given massive buffers my two channels here because I don't want to drop
-;; values. I'm not quite sure why they need to be so big, but anything smaller gives me:
-;; Exception in thread "async-dispatch-1626" java.lang.AssertionError:
-;;   Assert failed: No more than 1024 pending puts are allowed on a single channel. Consider using a windowed buffer.
-;;   (< (.size puts) impl/MAX-QUEUE-SIZE)
-;; (def urls-chan (chan 102400))
-
 ;; URL helpers
 (defn string->url [url]
   (try
@@ -36,33 +29,47 @@
   (s/replace url #"\#.*" ""))
 
 ;; Fetching/parsing pages
+;; (defn async-get [url]
+;;   (let [c (chan 1)]
+;;     (http/get url #(put! c %))
+;;     c))
+
 (defn async-get [url]
-  (let [c (chan 1)]
-    (http/get url #(put! c %))
+  (let [c (chan 2)]
+    (>!! c {:body "<html>
+                          <script src=\"script.js\"></script>
+                          <link rel=\"stylesheet\" href=\"style.css\"></link>
+                          <body>
+                            <a href=\"/page1\">a link</a>
+                            <a href=\"/page2\">a link</a>
+                          </body>
+                        </html>"
+                  :headers {:content-type "text/html"}
+                  :opts {:url url}})
     c))
 
-(defn get-doc
+(defn get-page
   "Fetches a parsed html page from the given url and places onto a channel"
   [url]
   (go (let [{:keys [error body opts headers]} (<! (async-get url))
             content-type (:content-type headers)]
         (if (or error (not (.startsWith content-type "text/html")))
-          (do (log/error "error fetching" url)
+          (do (log/error "error fetching" url error)
               false)
           (Jsoup/parse body (base-url (:url opts)))))))
 
 (defn get-assets
   "Returns assets referenced from the given html document"
-  [doc]
-  (->> (.select doc "script, link, img")
+  [page]
+  (->> (.select page "script, link, img")
        (mapcat (juxt #(.attr % "abs:href") #(.attr % "abs:src")))
        (filter string?)
        (remove empty?)))
 
 (defn get-links
   "Given a html document, returns all urls (limited to <domain>) linked to"
-  [doc domain]
-  (->> (.select doc "a")
+  [page domain]
+  (->> (.select page "a")
        (map #(.attr % "abs:href"))
        #_(remove empty?)
        (map string->url)
@@ -75,7 +82,7 @@
 (defn start-consumers
   "Spins up n go blocks to take a url from urls-chan, store its assets and then
   puts its links onto urls-chan, repeating until there are no more urls to take"
-  [n domain urls-chan visited-urls sitemap]
+  [n domain urls-chan visited-urls sitemap progress-chan]
   (let [exit-chan (chan 1)]
     (dotimes [_ n]
       (go-loop []
@@ -86,9 +93,10 @@
               (when-not (@visited-urls url)
                 (info "crawling" url)
                 (swap! visited-urls conj url)
-                (when-let [doc (<! (get-doc url))]
-                  (swap! sitemap assoc url (get-assets doc))
-                  (onto-chan urls-chan (get-links doc domain) false)))
+                (when-let [page (<! (get-page url))]
+                  (swap! sitemap assoc url (get-assets page))
+                  (>! progress-chan [url (get-assets page)])
+                  (onto-chan urls-chan (get-links page domain) false)))
               (recur))))))
     exit-chan))
 
@@ -96,11 +104,11 @@
   (double (/ (- (System/currentTimeMillis) start-time)
              1000)))
 
-(defn run [domain]
+(defn run [domain progress-chan]
   (let [urls-chan (chan 102400)
         visited-urls (atom #{})
         sitemap (atom {})]
-    (let [workers-done-chan (start-consumers 40 domain urls-chan visited-urls sitemap)]
+    (let [workers-done-chan (start-consumers 40 domain urls-chan visited-urls sitemap progress-chan)]
       (info "Begining crawl of" domain)
       ;; Kick off with the first url
       (>!! urls-chan domain)
