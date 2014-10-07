@@ -18,39 +18,17 @@
   [:body] (enlive/append
             (enlive/html [:script (browser-connected-repl-js)])))
 
-;; (defn ws-handler [request]
-;;   (with-channel request channel
-;;     (on-close channel #(println "channel closed: " %))
-;;     (add-watch crawler.core/site-map nil
-;;                (fn [_ _ _ new-value]
-;;                  (send! channel (json/write-str new-value))))))
-
-(defn mock-async-get [url]
-  (let [c (async/chan 2)]
-    (async/>!! c {:body "<html>
-                          <script src=\"script.js\"></script>
-                          <link rel=\"stylesheet\" href=\"style.css\"></link>
-                          <body>
-                            <a href=\"/page1\">a link</a>
-                            <a href=\"/page2\">a link</a>
-                          </body>
-                        </html>"
-                  :headers {:content-type "text/html"}
-                  :opts {:url url}})
-    c))
-
-(with-redefs [crawler.core/async-get mock-async-get]
-  (defn ws-handler [request]
-    (let [progress-chan (async/chan)]
-      (with-channel request channel
-        (on-close channel #(println "channel closed: " %))
-        (on-receive channel (fn [domain]
-                              (async/thread
-                                (crawler/run domain progress-chan))))
-        (async/go-loop []
-                       (when-some [msg (async/<! progress-chan)]
-                         (send! channel (json/write-str msg)))
-                       (recur))))))
+(defn ws-handler [request]
+  (let [progress-chan (async/chan)]
+    (with-channel request channel
+      (on-close channel #(println "channel closed: " %))
+      (on-receive channel (fn [domain]
+                            (async/thread
+                              (crawler/run domain progress-chan))))
+      (async/go-loop []
+                     (when-some [msg (async/<! progress-chan)]
+                       (send! channel (json/write-str msg)))
+                     (recur)))))
 
 (defroutes all-routes
   (GET "/" req (index))

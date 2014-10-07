@@ -29,24 +29,24 @@
   (s/replace url #"\#.*" ""))
 
 ;; Fetching/parsing pages
-;; (defn async-get [url]
-;;   (let [c (chan 1)]
-;;     (http/get url #(put! c %))
-;;     c))
-
 (defn async-get [url]
-  (let [c (chan 2)]
-    (>!! c {:body "<html>
-                          <script src=\"script.js\"></script>
-                          <link rel=\"stylesheet\" href=\"style.css\"></link>
-                          <body>
-                            <a href=\"/page1\">a link</a>
-                            <a href=\"/page2\">a link</a>
-                          </body>
-                        </html>"
-                  :headers {:content-type "text/html"}
-                  :opts {:url url}})
+  (let [c (chan 1)]
+    (http/get url #(put! c %))
     c))
+
+;(defn async-get [url]
+  ;(let [c (chan 2)]
+    ;(>!! c {:body "<html>
+                          ;<script src=\"script.js\"></script>
+                          ;<link rel=\"stylesheet\" href=\"style.css\"></link>
+                          ;<body>
+                            ;<a href=\"/page1\">a link</a>
+                            ;<a href=\"/page2\">a link</a>
+                          ;</body>
+                        ;</html>"
+                  ;:headers {:content-type "text/html"}
+                  ;:opts {:url url}})
+    ;c))
 
 (defn get-page
   "Fetches a parsed html page from the given url and places onto a channel"
