@@ -15,16 +15,11 @@
   (try
     (io/as-url url)
     (catch java.net.MalformedURLException e
-      (timbre/info "Couldn't parse url:" url)
-      nil)))
+      (timbre/info "Couldn't parse url:" url))))
 
 (defn base-url [url-str]
-  (try
-    (let [url (URL. url-str)]
-      (str (.getProtocol url) "://" (.getHost url)))
-    (catch Exception e
-      (timbre/error "error parsing url" url-str e)
-      nil)))
+  (when-let [url (string->url url-str)]
+    (str (.getProtocol url) "://" (.getHost url))))
 
 (defn remove-url-fragment [url]
   (s/replace url #"\#.*" ""))
@@ -41,7 +36,8 @@
   (async/go (let [{:keys [error body opts headers]} (async/<! (async-get url))
                   content-type (:content-type headers)]
               (if (or error (not (.startsWith content-type "text/html")))
-                (timbre/error "error fetching" url error)
+                (do (timbre/error "error fetching" url error)
+                    false)
                 (Jsoup/parse body (base-url (:url opts)))))))
 
 (defn get-assets

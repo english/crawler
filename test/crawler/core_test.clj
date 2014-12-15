@@ -4,12 +4,6 @@
             [clojure.core.async :as async])
   (:import [org.jsoup Jsoup]))
 
-(deftest test-remove-url-fragment
-  (testing "url with a fragment"
-    (is (= "http://example.com" (remove-url-fragment "http://example.com#thing"))))
-  (testing "url without a fragment"
-    (is (= "http://example.com" (remove-url-fragment "http://example.com")))))
-
 (defn mock-async-get [body & [options]]
   (fn [url]
     (let [c (async/chan 1)]
@@ -18,6 +12,18 @@
                            :opts {:url url}
                            :headers {:content-type "text/html"}} options))
                  c)))
+
+(defn html-page [{:keys [head body domain]}]
+  (Jsoup/parse (str "<html>"
+                      "<head>" head "</head>"
+                      "<body>" body "</body>"
+                    "</html") domain))
+
+(deftest test-remove-url-fragment
+  (testing "url with a fragment"
+    (is (= "http://example.com" (remove-url-fragment "http://example.com#thing"))))
+  (testing "url without a fragment"
+    (is (= "http://example.com" (remove-url-fragment "http://example.com")))))
 
 (deftest test-get-page
   (testing "happy path"
@@ -32,81 +38,70 @@
 
   (testing "with an error response"
     (with-redefs [crawler.core/async-get (mock-async-get "" {:error true})]
-      (is (= false
-             (async/<!! (get-page "http://example.com"))))))
+      (is (not (async/<!! (get-page "http://example.com"))))))
 
   (testing "when responding with non-html"
     (with-redefs [crawler.core/async-get
                   (mock-async-get "" {:headers {:content-type "application/json"}})]
-      (is (= false
+      (is (not
              (async/<!! (get-page "http://example.com")))))))
 
 (deftest test-get-assets
   (testing "images"
-    (let [html "<html><body><img src=\"/image.png\" /></body></html>"
-          page (Jsoup/parse html "http://example.com")]
+    (let [page (html-page {:body "<img src=\"/image.png\" />"
+                           :domain "http://example.com"})]
       (is (= '("http://example.com/image.png")
              (get-assets page)))))
 
   (testing "scripts"
-    (let [html "<html><body><script src=\"/script.js\"></script></body></html>"
-          page (Jsoup/parse html "http://example.com")]
+    (let [page (html-page {:body "<script src=\"/script.js\"></script>"
+                           :domain "http://example.com"})]
       (is (= '("http://example.com/script.js")
              (get-assets page)))))
 
   (testing "css"
-    (let [html "<html><link rel=\"stylesheet\" href=\"style.css\" /></html>"
-          page (Jsoup/parse html "http://example.com")]
+    (let [page (html-page {:head "<link rel=\"stylesheet\" href=\"style.css\" />"
+                           :domain "http://example.com"})]
       (is (= '("http://example.com/style.css")
              (get-assets page))))))
-
-(defn html-page [{:keys [head body]}]
-  (str "<html>"
-         "<head>" head "</head>"
-         "<body>" body "</body>"
-       "</html"))
 
 (deftest test-get-links
   (testing "empty link"
     (let [domain "http://example.com"
-          page (Jsoup/parse (html-page {:body "<a href=\"\"></a>"}) domain)]
+          page (html-page {:body "<a href=\"\"></a>" :domain domain})]
       (is (= '("http://example.com")
              (get-links page domain)))))
 
   (testing "bad link"
     (let [domain "http://example.com"
-          page (Jsoup/parse
-                 (html-page {:body "<a href=\"bla://example.com/\"></a>"})
-                 domain)]
+          page (html-page {:body "<a href=\"bla://example.com/\"></a>"
+                           :domain domain}) ]
       (is (= '()
              (get-links page domain)))))
 
   (testing "relative link"
     (let [domain "http://example.com"
-          page (Jsoup/parse (html-page {:body "<a href=\"page\"></a>"}) domain)]
+          page (html-page {:body "<a href=\"page\"></a>" :domain domain})]
       (is (= '("http://example.com/page")
              (get-links page domain)))))
 
   (testing "relative link"
     (let [domain "http://example.com"
-          page (Jsoup/parse (html-page {:body "<a href=\"page\"></a>"}) domain)]
+          page (html-page {:body "<a href=\"page\"></a>" :domain domain})]
       (is (= '("http://example.com/page")
              (get-links page domain)))))
 
   (testing "link with domain"
     (let [domain "http://example.com"
-          page (Jsoup/parse
-                 (html-page {:body "<a href=\"http://example.com/page\"></a>"})
-                 domain)]
+          page (html-page {:body "<a href=\"http://example.com/page\"></a>"
+                           :domain domain})]
       (is (= '("http://example.com/page")
              (get-links page domain)))))
 
   (testing "link with other domain"
     (let [domain "http://example.com"
-          page (Jsoup/parse
-                 (html-page
-                   {:body "<a href=\"http://other.com/page\"></a>"})
-                 domain)]
+          page (html-page {:body "<a href=\"http://other.com/page\"></a>"
+                           :domain domain})]
       (is (= '()
              (get-links page domain)))))
 
@@ -116,7 +111,7 @@
                <a href=\"/absolute-iink\"></a>
                <a href=\"relative-link\"></a>
                <a href=\"http://example.com/with-domain-link\"></a>"
-          page (Jsoup/parse (html-page {:body body}) domain)]
+          page (html-page {:body body :domain domain})]
       (is (= '("http://example.com/absolute-iink"
                 "http://example.com/relative-link"
                 "http://example.com/with-domain-link")
