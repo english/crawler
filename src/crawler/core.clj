@@ -3,8 +3,9 @@
             [clojure.xml :as xml]
             [clojure.string :as s]
             [taoensso.timbre :as timbre :refer [info error]]
+            [clojure.java.io :as io]
             [clojure.data.json :as json]
-            [clojure.core.async :refer [mult tap chan <! <!! >! >!! put! go go-loop alts! timeout dropping-buffer buffer close! onto-chan]])
+            [clojure.core.async :as async])
   (:import [org.jsoup Jsoup]
            [java.net URL])
   (:gen-class))
@@ -12,7 +13,7 @@
 ;; URL helpers
 (defn string->url [url]
   (try
-    (URL. url)
+    (io/as-url url)
     (catch java.net.MalformedURLException e
       (error "Couldn't parse url:" url)
       nil)))
@@ -30,14 +31,14 @@
 
 ;; Fetching/parsing pages
 (defn async-get [url]
-  (let [c (chan 1)]
-    (http/get url #(put! c %))
+  (let [c (async/chan 1)]
+    (http/get url #(async/put! c %))
     c))
 
 (defn get-page
   "Fetches a parsed html page from the given url and places onto a channel"
   [url]
-  (go (let [{:keys [error body opts headers]} (<! (async-get url))
+  (async/go (let [{:keys [error body opts headers]} (async/<! (async-get url))
             content-type (:content-type headers)]
         (if (or error (not (.startsWith content-type "text/html")))
           (do (timbre/error "error fetching" url error)
@@ -69,20 +70,20 @@
   "Spins up n go blocks to take a url from urls-chan, store its assets and then
   puts its links onto urls-chan, repeating until there are no more urls to take"
   [n domain urls-chan visited-urls sitemap progress-chan]
-  (let [exit-chan (chan 1)]
+  (let [exit-chan (async/chan 1)]
     (dotimes [_ n]
-      (go-loop []
-        (let [[url channel] (alts! [urls-chan (timeout 3000)])]
+      (async/go-loop []
+        (let [[url channel] (async/alts! [urls-chan (async/timeout 3000)])]
           (if (not= channel urls-chan)
-            (>! exit-chan true)
+            (async/>! exit-chan true)
             (when-not (nil? url)
               (when-not (@visited-urls url)
                 (info "crawling" url)
                 (swap! visited-urls conj url)
-                (when-let [page (<! (get-page url))]
+                (when-let [page (async/<! (get-page url))]
                   (swap! sitemap assoc url (get-assets page))
-                  (>! progress-chan [url (get-assets page)])
-                  (onto-chan urls-chan (get-links page domain) false)))
+                  (async/>! progress-chan [url (get-assets page)])
+                  (async/onto-chan urls-chan (get-links page domain) false)))
               (recur))))))
     exit-chan))
 
@@ -91,14 +92,14 @@
              1000)))
 
 (defn run [domain progress-chan]
-  (let [urls-chan (chan 102400)
+  (let [urls-chan (async/chan 102400)
         visited-urls (atom #{})
         sitemap (atom {})]
     (let [workers-done-chan (start-consumers 40 domain urls-chan visited-urls sitemap progress-chan)]
       (info "Begining crawl of" domain)
       ;; Kick off with the first url
-      (>!! urls-chan domain)
-      (<!! workers-done-chan)
+      (async/>!! urls-chan domain)
+      (async/<!! workers-done-chan)
       (info "Done crawling")
       @sitemap)))
 
@@ -106,5 +107,5 @@
   "Crawls [domain] for links to assets"
   [domain]
   (let [start-time (System/currentTimeMillis)]
-    (println (json/write-str (run domain (chan))))
+    (println (json/write-str (run domain (async/chan))))
     (info "Completed after" (seconds-since start-time) "seconds")))
