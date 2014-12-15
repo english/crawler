@@ -2,7 +2,7 @@
   (:require [org.httpkit.client :as http]
             [clojure.xml :as xml]
             [clojure.string :as s]
-            [clojure.tools.logging :as log :refer [info error]]
+            [taoensso.timbre :as timbre :refer [info error]]
             [clojure.data.json :as json]
             [clojure.core.async :refer [mult tap chan <! <!! >! >!! put! go go-loop alts! timeout dropping-buffer buffer close! onto-chan]])
   (:import [org.jsoup Jsoup]
@@ -54,7 +54,7 @@
   (go (let [{:keys [error body opts headers]} (<! (async-get url))
             content-type (:content-type headers)]
         (if (or error (not (.startsWith content-type "text/html")))
-          (do (log/error "error fetching" url error)
+          (do (timbre/error "error fetching" url error)
               false)
           (Jsoup/parse body (base-url (:url opts)))))))
 

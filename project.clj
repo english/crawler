@@ -12,7 +12,7 @@
                  [compojure "1.1.8"]
                  [ring "1.3.1"]
                  [ring/ring-devel "1.1.8"]
-                 [org.clojure/tools.logging "0.3.1"]
+                 [com.taoensso/timbre "3.3.1"]
                  [enlive "1.1.5"]
                  [com.gfredericks/vcr-clj "0.4.0"]]
   :dev-dependencies [[javax.servlet/servlet-api "2.5"]]
