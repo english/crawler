@@ -21,9 +21,11 @@
 
 (deftest test-remove-url-fragment
   (testing "url with a fragment"
-    (is (= "http://example.com" (remove-url-fragment "http://example.com#thing"))))
+    (is (= "http://example.com"
+           (remove-url-fragment "http://example.com#thing"))))
   (testing "url without a fragment"
-    (is (= "http://example.com" (remove-url-fragment "http://example.com")))))
+    (is (= "http://example.com"
+           (remove-url-fragment "http://example.com")))))
 
 (deftest test-get-page
   (testing "happy path"
@@ -76,8 +78,7 @@
     (let [domain "http://example.com"
           page (html-page :body "<a href=\"bla://example.com/\"></a>"
                           :domain domain) ]
-      (is (= '()
-             (get-links page domain)))))
+      (is (empty? (get-links page domain)))))
 
   (testing "relative link"
     (let [domain "http://example.com"
@@ -102,8 +103,7 @@
     (let [domain "http://example.com"
           page (html-page :body "<a href=\"http://other.com/page\"></a>"
                           :domain domain)]
-      (is (= '()
-             (get-links page domain)))))
+      (is (empty? (get-links page domain)))))
 
   (testing "multiple links"
     (let [domain "http://example.com"

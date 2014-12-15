@@ -33,12 +33,12 @@
 (defn get-page
   "Fetches a parsed html page from the given url and places onto a channel"
   [url]
-  (async/go (let [{:keys [error body opts headers]} (async/<! (async-get url))
-                  content-type (:content-type headers)]
-              (if (or error (not (.startsWith content-type "text/html")))
-                (do (timbre/error "error fetching" url error)
-                    false)
-                (Jsoup/parse body (base-url (:url opts)))))))
+  (async/go
+    (let [{:keys [error body opts headers]} (async/<! (async-get url))
+          content-type (:content-type headers)]
+      (if (or error (not (.startsWith content-type "text/html")))
+        (timbre/error "error fetching" url error)
+        (Jsoup/parse body (base-url (:url opts)))))))
 
 (defn get-assets
   "Returns assets referenced from the given html document"
@@ -46,8 +46,7 @@
   (->> (.select page "script, link, img")
        (mapcat (juxt #(.attr % "abs:href")
                      #(.attr % "abs:src")))
-       (filter string?)
-       (remove empty?)))
+       (remove s/blank?)))
 
 (defn get-links
   "Given a html document, returns all urls (limited to <domain>) linked to"
@@ -56,7 +55,7 @@
        (map #(.attr % "abs:href"))
        (map string->url)
        (remove nil?)
-       (filter #(.endsWith (.getHost %) (.getHost (URL. domain))))
+       (filter #(.endsWith (.getHost %) (.getHost (string->url domain))))
        (filter #(#{"http" "https"} (.getProtocol %)))
        (map remove-url-fragment)))
 
@@ -69,17 +68,19 @@
         exit-chan (async/chan 1)]
     (dotimes [_ n]
       (async/go-loop []
-        (let [[url channel] (async/alts! [urls-chan (async/timeout 3000)])]
+        (let [[url channel] (async/alts! [urls-chan (async/timeout 300)])]
           (if (not= channel urls-chan)
             (async/>! exit-chan true)
-            (when-not (nil? url)
+            (when-not (s/blank? url)
               (when-not (@visited-urls url)
                 (timbre/info "crawling" url)
                 (swap! visited-urls conj url)
                 (when-let [page (async/<! (get-page url))]
-                  (swap! sitemap assoc url (get-assets page))
-                  (async/>! progress-chan [url (get-assets page)])
-                  (async/onto-chan urls-chan (get-links page domain) false)))
+                  (let [assets (get-assets page)
+                        links (get-links page domain)];; TODO: See if we can get domain from page
+                    (swap! sitemap assoc url assets)
+                    (async/>! progress-chan [url assets])
+                    (async/onto-chan urls-chan links false))))
               (recur))))))
     exit-chan))
 
@@ -94,7 +95,7 @@
       (timbre/info "Begining crawl of" domain)
       ;; Kick off with the first url
       (async/>!! urls-chan domain)
-      (async/<!! workers-done-chan)
+      (async/<!! workers-done-chan) ;; block until we're done
       (timbre/info "Done crawling")
       @sitemap)))
 
