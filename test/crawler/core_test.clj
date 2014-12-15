@@ -13,7 +13,7 @@
                            :headers {:content-type "text/html"}} options))
                  c)))
 
-(defn html-page [{:keys [head body domain]}]
+(defn html-page [& {:keys [head body domain]}]
   (Jsoup/parse (str "<html>"
                       "<head>" head "</head>"
                       "<body>" body "</body>"
@@ -48,60 +48,60 @@
 
 (deftest test-get-assets
   (testing "images"
-    (let [page (html-page {:body "<img src=\"/image.png\" />"
-                           :domain "http://example.com"})]
+    (let [page (html-page :body "<img src=\"/image.png\" />"
+                          :domain "http://example.com")]
       (is (= '("http://example.com/image.png")
              (get-assets page)))))
 
   (testing "scripts"
-    (let [page (html-page {:body "<script src=\"/script.js\"></script>"
-                           :domain "http://example.com"})]
+    (let [page (html-page :body "<script src=\"/script.js\"></script>"
+                          :domain "http://example.com")]
       (is (= '("http://example.com/script.js")
              (get-assets page)))))
 
   (testing "css"
-    (let [page (html-page {:head "<link rel=\"stylesheet\" href=\"style.css\" />"
-                           :domain "http://example.com"})]
+    (let [page (html-page :head "<link rel=\"stylesheet\" href=\"style.css\" />"
+                          :domain "http://example.com")]
       (is (= '("http://example.com/style.css")
              (get-assets page))))))
 
 (deftest test-get-links
   (testing "empty link"
     (let [domain "http://example.com"
-          page (html-page {:body "<a href=\"\"></a>" :domain domain})]
+          page (html-page :body "<a href=\"\"></a>" :domain domain)]
       (is (= '("http://example.com")
              (get-links page domain)))))
 
   (testing "bad link"
     (let [domain "http://example.com"
-          page (html-page {:body "<a href=\"bla://example.com/\"></a>"
-                           :domain domain}) ]
+          page (html-page :body "<a href=\"bla://example.com/\"></a>"
+                          :domain domain) ]
       (is (= '()
              (get-links page domain)))))
 
   (testing "relative link"
     (let [domain "http://example.com"
-          page (html-page {:body "<a href=\"page\"></a>" :domain domain})]
+          page (html-page :body "<a href=\"page\"></a>" :domain domain)]
       (is (= '("http://example.com/page")
              (get-links page domain)))))
 
   (testing "relative link"
     (let [domain "http://example.com"
-          page (html-page {:body "<a href=\"page\"></a>" :domain domain})]
+          page (html-page :body "<a href=\"page\"></a>" :domain domain)]
       (is (= '("http://example.com/page")
              (get-links page domain)))))
 
   (testing "link with domain"
     (let [domain "http://example.com"
-          page (html-page {:body "<a href=\"http://example.com/page\"></a>"
-                           :domain domain})]
+          page (html-page :body "<a href=\"http://example.com/page\"></a>"
+                          :domain domain)]
       (is (= '("http://example.com/page")
              (get-links page domain)))))
 
   (testing "link with other domain"
     (let [domain "http://example.com"
-          page (html-page {:body "<a href=\"http://other.com/page\"></a>"
-                           :domain domain})]
+          page (html-page :body "<a href=\"http://other.com/page\"></a>"
+                          :domain domain)]
       (is (= '()
              (get-links page domain)))))
 
@@ -111,7 +111,7 @@
                <a href=\"/absolute-iink\"></a>
                <a href=\"relative-link\"></a>
                <a href=\"http://example.com/with-domain-link\"></a>"
-          page (html-page {:body body :domain domain})]
+          page (html-page :body body :domain domain)]
       (is (= '("http://example.com/absolute-iink"
                 "http://example.com/relative-link"
                 "http://example.com/with-domain-link")
