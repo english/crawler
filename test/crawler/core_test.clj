@@ -12,7 +12,7 @@
 
 (defn mock-async-get [body & [options]]
   (fn [url]
-    (let [c (async/chan 10)]
+    (let [c (async/chan 1)]
       (async/>!! c (merge {:error nil
                            :body body
                            :opts {:url url}
@@ -69,8 +69,11 @@
 
 (deftest test-run
   (testing "it works"
-    (let [html "<html><script src=\"script.js\"></script><body><a href=\"/page\">a link</a></body></html>"]
+    (let [html "<html>
+                 <head><script src=\"script.js\"></script></head>
+                 <body><a href=\"/page\">a link</a></body>
+               </html>"]
       (with-redefs [crawler.core/async-get (mock-async-get html)]
-        (is (= (run "http://example.com" (async/chan))
-               {"http://example.com/page" '("http://example.com/script.js"),
+        (is (= (run "http://example.com" (async/chan 1))
+               {"http://example.com/page" '("http://example.com/script.js")
                 "http://example.com"      '("http://example.com/script.js")}))))))
