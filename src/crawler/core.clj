@@ -2,7 +2,7 @@
   (:require [org.httpkit.client :as http]
             [clojure.xml :as xml]
             [clojure.string :as s]
-            [taoensso.timbre :as timbre :refer [info error]]
+            [taoensso.timbre :as timbre]
             [clojure.java.io :as io]
             [clojure.data.json :as json]
             [clojure.core.async :as async])
@@ -15,7 +15,7 @@
   (try
     (io/as-url url)
     (catch java.net.MalformedURLException e
-      (error "Couldn't parse url:" url)
+      (timbre/info "Couldn't parse url:" url)
       nil)))
 
 (defn base-url [url-str]
@@ -23,7 +23,7 @@
     (let [url (URL. url-str)]
       (str (.getProtocol url) "://" (.getHost url)))
     (catch Exception e
-      (error "error parsing url" url-str e)
+      (timbre/error "error parsing url" url-str e)
       nil)))
 
 (defn remove-url-fragment [url]
@@ -39,17 +39,17 @@
   "Fetches a parsed html page from the given url and places onto a channel"
   [url]
   (async/go (let [{:keys [error body opts headers]} (async/<! (async-get url))
-            content-type (:content-type headers)]
-        (if (or error (not (.startsWith content-type "text/html")))
-          (do (timbre/error "error fetching" url error)
-              false)
-          (Jsoup/parse body (base-url (:url opts)))))))
+                  content-type (:content-type headers)]
+              (if (or error (not (.startsWith content-type "text/html")))
+                (timbre/error "error fetching" url error)
+                (Jsoup/parse body (base-url (:url opts)))))))
 
 (defn get-assets
   "Returns assets referenced from the given html document"
   [page]
   (->> (.select page "script, link, img")
-       (mapcat (juxt #(.attr % "abs:href") #(.attr % "abs:src")))
+       (mapcat (juxt #(.attr % "abs:href")
+                     #(.attr % "abs:src")))
        (filter string?)
        (remove empty?)))
 
@@ -58,7 +58,6 @@
   [page domain]
   (->> (.select page "a")
        (map #(.attr % "abs:href"))
-       (remove empty?)
        (map string->url)
        (remove nil?)
        (filter #(.endsWith (.getHost %) (.getHost (URL. domain))))
@@ -69,8 +68,9 @@
 (defn start-consumers
   "Spins up n go blocks to take a url from urls-chan, store its assets and then
   puts its links onto urls-chan, repeating until there are no more urls to take"
-  [n domain urls-chan visited-urls sitemap progress-chan]
-  (let [exit-chan (async/chan 1)]
+  [n domain urls-chan sitemap progress-chan]
+  (let [visited-urls (atom #{})
+        exit-chan (async/chan 1)]
     (dotimes [_ n]
       (async/go-loop []
         (let [[url channel] (async/alts! [urls-chan (async/timeout 3000)])]
@@ -78,7 +78,7 @@
             (async/>! exit-chan true)
             (when-not (nil? url)
               (when-not (@visited-urls url)
-                (info "crawling" url)
+                (timbre/info "crawling" url)
                 (swap! visited-urls conj url)
                 (when-let [page (async/<! (get-page url))]
                   (swap! sitemap assoc url (get-assets page))
@@ -93,14 +93,13 @@
 
 (defn run [domain progress-chan]
   (let [urls-chan (async/chan 102400)
-        visited-urls (atom #{})
         sitemap (atom {})]
-    (let [workers-done-chan (start-consumers 40 domain urls-chan visited-urls sitemap progress-chan)]
-      (info "Begining crawl of" domain)
+    (let [workers-done-chan (start-consumers 40 domain urls-chan sitemap progress-chan)]
+      (timbre/info "Begining crawl of" domain)
       ;; Kick off with the first url
       (async/>!! urls-chan domain)
       (async/<!! workers-done-chan)
-      (info "Done crawling")
+      (timbre/info "Done crawling")
       @sitemap)))
 
 (defn -main
@@ -108,4 +107,4 @@
   [domain]
   (let [start-time (System/currentTimeMillis)]
     (println (json/write-str (run domain (async/chan))))
-    (info "Completed after" (seconds-since start-time) "seconds")))
+    (timbre/info "Completed after" (seconds-since start-time) "seconds")))

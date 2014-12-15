@@ -60,12 +60,67 @@
       (is (= '("http://example.com/style.css")
              (get-assets page))))))
 
+(defn html-page [{:keys [head body]}]
+  (str "<html>"
+         "<head>" head "</head>"
+         "<body>" body "</body>"
+       "</html"))
+
 (deftest test-get-links
-  (testing "simple"
+  (testing "empty link"
     (let [domain "http://example.com"
-          html "<html><a href=\"page\"></a></html>"]
+          page (Jsoup/parse (html-page {:body "<a href=\"\"></a>"}) domain)]
+      (is (= '("http://example.com")
+             (get-links page domain)))))
+
+  (testing "bad link"
+    (let [domain "http://example.com"
+          page (Jsoup/parse
+                 (html-page {:body "<a href=\"bla://example.com/\"></a>"})
+                 domain)]
+      (is (= '()
+             (get-links page domain)))))
+
+  (testing "relative link"
+    (let [domain "http://example.com"
+          page (Jsoup/parse (html-page {:body "<a href=\"page\"></a>"}) domain)]
       (is (= '("http://example.com/page")
-             (get-links (Jsoup/parse html domain) domain))))))
+             (get-links page domain)))))
+
+  (testing "relative link"
+    (let [domain "http://example.com"
+          page (Jsoup/parse (html-page {:body "<a href=\"page\"></a>"}) domain)]
+      (is (= '("http://example.com/page")
+             (get-links page domain)))))
+
+  (testing "link with domain"
+    (let [domain "http://example.com"
+          page (Jsoup/parse
+                 (html-page {:body "<a href=\"http://example.com/page\"></a>"})
+                 domain)]
+      (is (= '("http://example.com/page")
+             (get-links page domain)))))
+
+  (testing "link with other domain"
+    (let [domain "http://example.com"
+          page (Jsoup/parse
+                 (html-page
+                   {:body "<a href=\"http://other.com/page\"></a>"})
+                 domain)]
+      (is (= '()
+             (get-links page domain)))))
+
+  (testing "multiple links"
+    (let [domain "http://example.com"
+          body "<a href=\"http://other.com/page\"></a>
+               <a href=\"/absolute-iink\"></a>
+               <a href=\"relative-link\"></a>
+               <a href=\"http://example.com/with-domain-link\"></a>"
+          page (Jsoup/parse (html-page {:body body}) domain)]
+      (is (= '("http://example.com/absolute-iink"
+                "http://example.com/relative-link"
+                "http://example.com/with-domain-link")
+             (get-links page domain))))))
 
 (deftest test-run
   (testing "it works"
