@@ -34,20 +34,6 @@
     (http/get url #(put! c %))
     c))
 
-;(defn async-get [url]
-  ;(let [c (chan 2)]
-    ;(>!! c {:body "<html>
-                          ;<script src=\"script.js\"></script>
-                          ;<link rel=\"stylesheet\" href=\"style.css\"></link>
-                          ;<body>
-                            ;<a href=\"/page1\">a link</a>
-                            ;<a href=\"/page2\">a link</a>
-                          ;</body>
-                        ;</html>"
-                  ;:headers {:content-type "text/html"}
-                  ;:opts {:url url}})
-    ;c))
-
 (defn get-page
   "Fetches a parsed html page from the given url and places onto a channel"
   [url]
@@ -71,9 +57,9 @@
   [page domain]
   (->> (.select page "a")
        (map #(.attr % "abs:href"))
-       #_(remove empty?)
+       (remove empty?)
        (map string->url)
-       #_(remove nil?)
+       (remove nil?)
        (filter #(.endsWith (.getHost %) (.getHost (URL. domain))))
        (filter #(#{"http" "https"} (.getProtocol %)))
        (map remove-url-fragment)))
@@ -120,5 +106,5 @@
   "Crawls [domain] for links to assets"
   [domain]
   (let [start-time (System/currentTimeMillis)]
-    (println (json/write-str (run domain)))
+    (println (json/write-str (run domain (chan))))
     (info "Completed after" (seconds-since start-time) "seconds")))
