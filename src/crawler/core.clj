@@ -27,7 +27,7 @@
 ;; Fetching/parsing pages
 (defn async-get [url]
   (let [c (async/chan 1)]
-    (http/get url #(async/put! c %))
+    (http/get url {:keepalive 30000} #(async/put! c %))
     c))
 
 (defn get-page
@@ -68,7 +68,7 @@
         exit-chan (async/chan 1)]
     (dotimes [_ n]
       (async/go-loop []
-        (let [[url channel] (async/alts! [urls-chan (async/timeout 300)])]
+        (let [[url channel] (async/alts! [urls-chan (async/timeout 3000)])]
           (if (not= channel urls-chan)
             (async/>! exit-chan true)
             (when-not (s/blank? url)
@@ -103,5 +103,5 @@
   "Crawls [domain] for links to assets"
   [domain]
   (let [start-time (System/currentTimeMillis)]
-    (println (json/write-str (run domain (async/chan))))
+    (println (json/write-str (run domain (async/chan 102400))))
     (timbre/info "Completed after" (seconds-since start-time) "seconds")))
