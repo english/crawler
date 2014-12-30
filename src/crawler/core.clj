@@ -68,45 +68,47 @@
 (defn start-consumers
   "Spins up n go blocks to take a url from urls-chan, store its assets and then
   puts its links onto urls-chan, repeating until there are no more urls to take"
-  [n urls-chan sitemap progress-chan]
-  (let [visited-urls (atom #{})
-        exit-chan (async/chan 1)]
-    (dotimes [_ n]
-      (async/go-loop []
-        (let [[url channel] (async/alts! [urls-chan (async/timeout 3000)])]
-          (if (not= channel urls-chan)
-            (async/>! exit-chan true)
-            (when-not (s/blank? url)
-              (when-not (@visited-urls url)
-                (timbre/info "crawling" url)
-                (swap! visited-urls conj url)
-                (when-let [page (async/<! (get-page url))]
-                  (let [assets (get-assets page)
-                        links (get-links page)]
-                    (swap! sitemap assoc url assets)
-                    (async/>! progress-chan [url assets])
-                    (async/onto-chan urls-chan links false))))
-              (recur))))))
-    exit-chan))
+  [n urls-chan progress-chan]
+  (let [visited-urls (atom #{})]
+    (for [index (range n)]
+      (async/go-loop [sitemap {}]
+        (let [[url channel] (async/alts! [urls-chan (async/timeout 1000)])]
+          (if (or (not= channel urls-chan) ; timeout happened
+                  (nil? url)) ; urls-chan has been closed
+            (do (async/close! progress-chan)
+                (async/close! urls-chan)
+                sitemap)
+            (if (@visited-urls url)
+              (recur sitemap)
+              (do (timbre/info "(" index ") ->" url)
+                  (swap! visited-urls conj url)
+                  (if-let [page (async/<! (get-page url))]
+                    (do (timbre/info "(" index ") <-" url)
+                        (let [assets (get-assets page)
+                              links (get-links page)]
+                          (async/>! progress-chan [url assets])
+                          (async/onto-chan urls-chan links false)
+                          (recur (assoc sitemap url assets))))
+                    (recur sitemap))))))))))
 
 (defn seconds-since [start-time]
   (double (/ (- (System/currentTimeMillis) start-time)
              1000)))
 
-(defn run [domain progress-chan]
-  (let [urls-chan (async/chan 102400)
-        sitemap (atom {})]
-    (let [workers-done-chan (start-consumers 40 urls-chan sitemap progress-chan)]
-      (timbre/info "Begining crawl of" domain)
-      ;; Kick off with the first url
-      (async/>!! urls-chan domain)
-      (async/<!! workers-done-chan) ;; block until we're done
-      (timbre/info "Done crawling")
-      @sitemap)))
+(defn run
+  ([domain progress-chan]
+   (let [urls-chan (async/chan 102400)
+         worker-channels (start-consumers 10 urls-chan progress-chan)]
+     (timbre/info "Begining crawl of" domain)
+     ;; Kick off with the first url
+     (async/>!! urls-chan domain)
+     (async/reduce merge {} (async/merge worker-channels))))
+  ([domain]
+   (run domain (async/chan (async/dropping-buffer 1)))))
 
 (defn -main
   "Crawls [domain] for links to assets"
   [domain]
   (let [start-time (System/currentTimeMillis)]
-    (println (json/write-str (run domain (async/chan 102400))))
+    (println (json/write-str (async/<!! (run domain))))
     (timbre/info "Completed after" (seconds-since start-time) "seconds")))
