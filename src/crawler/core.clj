@@ -60,7 +60,7 @@
        (map #(.attr % "abs:href"))
        (map string->url)
        (remove nil?)
-       (filter #(.endsWith (.getHost %) (.getHost (string->url (.baseUri page)))))
+       (filter (partial same-domain? (string->url (.baseUri page))))
        (filter #(#{"http" "https"} (.getProtocol %)))
        (map remove-url-fragment)))
 
