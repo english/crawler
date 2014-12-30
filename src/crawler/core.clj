@@ -48,6 +48,11 @@
                      #(.attr % "abs:src")))
        (remove s/blank?)))
 
+(defn same-domain?
+  "True if url-a is on the same domain (or a subdomain of) url-b"
+  [url-a url-b]
+  (.endsWith (.getHost url-b) (.getHost url-a)))
+
 (defn get-links
   "Given a html document, returns all urls (limited to domain) linked to"
   [page]
