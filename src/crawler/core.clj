@@ -21,8 +21,8 @@
   (when-let [url (string->url url-str)]
     (str (.getProtocol url) "://" (.getHost url))))
 
-(defn remove-url-fragment [url]
-  (s/replace url #"\#.*" ""))
+(defn remove-url-fragment [url-str]
+  (s/replace url-str #"\#.*" ""))
 
 ;; Fetching/parsing pages
 (defn async-get [url]
