@@ -49,13 +49,13 @@
        (remove s/blank?)))
 
 (defn get-links
-  "Given a html document, returns all urls (limited to <domain>) linked to"
-  [page domain]
+  "Given a html document, returns all urls (limited to domain) linked to"
+  [page]
   (->> (.select page "a")
        (map #(.attr % "abs:href"))
        (map string->url)
        (remove nil?)
-       (filter #(.endsWith (.getHost %) (.getHost (string->url domain))))
+       (filter #(.endsWith (.getHost %) (.getHost (string->url (.baseUri page)))))
        (filter #(#{"http" "https"} (.getProtocol %)))
        (map remove-url-fragment)))
 
@@ -63,7 +63,7 @@
 (defn start-consumers
   "Spins up n go blocks to take a url from urls-chan, store its assets and then
   puts its links onto urls-chan, repeating until there are no more urls to take"
-  [n domain urls-chan sitemap progress-chan]
+  [n urls-chan sitemap progress-chan]
   (let [visited-urls (atom #{})
         exit-chan (async/chan 1)]
     (dotimes [_ n]
@@ -77,7 +77,7 @@
                 (swap! visited-urls conj url)
                 (when-let [page (async/<! (get-page url))]
                   (let [assets (get-assets page)
-                        links (get-links page domain)];; TODO: See if we can get domain from page
+                        links (get-links page)]
                     (swap! sitemap assoc url assets)
                     (async/>! progress-chan [url assets])
                     (async/onto-chan urls-chan links false))))
@@ -91,7 +91,7 @@
 (defn run [domain progress-chan]
   (let [urls-chan (async/chan 102400)
         sitemap (atom {})]
-    (let [workers-done-chan (start-consumers 40 domain urls-chan sitemap progress-chan)]
+    (let [workers-done-chan (start-consumers 40 urls-chan sitemap progress-chan)]
       (timbre/info "Begining crawl of" domain)
       ;; Kick off with the first url
       (async/>!! urls-chan domain)

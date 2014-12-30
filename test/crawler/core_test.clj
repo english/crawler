@@ -72,38 +72,38 @@
     (let [domain "http://example.com"
           page (html-page :body "<a href=\"\"></a>" :domain domain)]
       (is (= '("http://example.com")
-             (get-links page domain)))))
+             (get-links page)))))
 
   (testing "bad link"
     (let [domain "http://example.com"
           page (html-page :body "<a href=\"bla://example.com/\"></a>"
                           :domain domain) ]
-      (is (empty? (get-links page domain)))))
+      (is (empty? (get-links page)))))
 
   (testing "relative link"
     (let [domain "http://example.com"
           page (html-page :body "<a href=\"page\"></a>" :domain domain)]
       (is (= '("http://example.com/page")
-             (get-links page domain)))))
+             (get-links page)))))
 
   (testing "relative link"
     (let [domain "http://example.com"
           page (html-page :body "<a href=\"page\"></a>" :domain domain)]
       (is (= '("http://example.com/page")
-             (get-links page domain)))))
+             (get-links page)))))
 
   (testing "link with domain"
     (let [domain "http://example.com"
           page (html-page :body "<a href=\"http://example.com/page\"></a>"
                           :domain domain)]
       (is (= '("http://example.com/page")
-             (get-links page domain)))))
+             (get-links page)))))
 
   (testing "link with other domain"
     (let [domain "http://example.com"
           page (html-page :body "<a href=\"http://other.com/page\"></a>"
                           :domain domain)]
-      (is (empty? (get-links page domain)))))
+      (is (empty? (get-links page)))))
 
   (testing "multiple links"
     (let [domain "http://example.com"
