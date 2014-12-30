@@ -11,12 +11,12 @@
                            :body body
                            :opts {:url url}
                            :headers {:content-type "text/html"}} options))
-                 c)))
+      c)))
 
 (defn html-page [& {:keys [head body domain]}]
   (Jsoup/parse (str "<html>"
-                      "<head>" head "</head>"
-                      "<body>" body "</body>"
+                    "<head>" head "</head>"
+                    "<body>" body "</body>"
                     "</html") domain))
 
 (deftest test-remove-url-fragment
@@ -46,7 +46,7 @@
     (with-redefs [crawler.core/async-get
                   (mock-async-get "" {:headers {:content-type "application/json"}})]
       (is (not
-             (async/<!! (get-page "http://example.com")))))))
+            (async/<!! (get-page "http://example.com")))))))
 
 (deftest test-get-assets
   (testing "images"
@@ -108,22 +108,22 @@
   (testing "multiple links"
     (let [domain "http://example.com"
           body "<a href=\"http://other.com/page\"></a>
-               <a href=\"/absolute-iink\"></a>
+               <a href=\"/absolute-link\"></a>
                <a href=\"relative-link\"></a>
                <a href=\"http://example.com/with-domain-link\"></a>"
           page (html-page :body body :domain domain)]
-      (is (= '("http://example.com/absolute-iink"
+      (is (= '("http://example.com/absolute-link"
                 "http://example.com/relative-link"
                 "http://example.com/with-domain-link")
-             (get-links page domain))))))
+             (get-links page))))))
 
 (deftest test-run
   (testing "it works"
     (let [html "<html>
-                 <head><script src=\"script.js\"></script></head>
-                 <body><a href=\"/page\">a link</a></body>
+               <head><script src=\"script.js\"></script></head>
+               <body><a href=\"/page\">a link</a></body>
                </html>"]
       (with-redefs [crawler.core/async-get (mock-async-get html)]
-        (is (= (run "http://example.com" (async/chan 1))
+        (is (= (async/<!! (run "http://example.com"))
                {"http://example.com/page" '("http://example.com/script.js")
                 "http://example.com"      '("http://example.com/script.js")}))))))
