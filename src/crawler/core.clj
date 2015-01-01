@@ -70,7 +70,7 @@
   puts its links onto urls-chan, repeating until there are no more urls to take"
   [n urls-chan progress-chan]
   (let [visited-urls (atom #{})]
-    (for [index (range n)]
+    (for [_ (range n)]
       (async/go-loop [sitemap {}]
         (let [[url channel] (async/alts! [urls-chan (async/timeout 1000)])]
           (if (or (not= channel urls-chan) ; timeout happened
@@ -80,10 +80,10 @@
                 sitemap)
             (if (@visited-urls url)
               (recur sitemap)
-              (do (timbre/info "(" index ") ->" url)
+              (do (timbre/info "->" url)
                   (swap! visited-urls conj url)
                   (if-let [page (async/<! (get-page url))]
-                    (do (timbre/info "(" index ") <-" url)
+                    (do (timbre/info "<-" url)
                         (let [assets (get-assets page)
                               links (get-links page)]
                           (async/>! progress-chan [url assets])
