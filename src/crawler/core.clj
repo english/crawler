@@ -97,8 +97,8 @@
 
 (defn run
   ([domain progress-chan]
-   (let [urls-chan (async/chan 102400)
-         worker-channels (start-consumers 10 urls-chan progress-chan)]
+   (let [urls-chan (async/chan 1)
+         worker-channels (start-consumers 200 urls-chan progress-chan)]
      (timbre/info "Begining crawl of" domain)
      ;; Kick off with the first url
      (async/>!! urls-chan domain)
